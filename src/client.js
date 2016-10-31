@@ -31,41 +31,34 @@ class Chat {
 	}
 
 	initializeSocket() {
+		this.signalingServer = new WebSocket(WS_URL);
+		this.signalingServer.onmessage = message => this.handleNewMessage(message);
 
-		this.serverConnection = new WebSocket('ws://127.0.0.1:3013');
-		this.serverConnection.onmessage = message => this.gotMessageFromServer(message);
-
-		var constraints = {
-			video: true,
-			audio: true,
-		};
-		navigator.mediaDevices.getUserMedia(constraints)
+		navigator.mediaDevices.getUserMedia({ video: true, audio: true })
 			.then((media) => this.getUserMediaSuccess(media))
 			.catch(this.rtcError);
 	}
 
 	getUserMediaSuccess(stream) {
-		console.log("getUserMediaSuccess");
+		console.log('getUserMediaSuccess');
 		this.localStream = stream;
 		this.localVideo.srcObject = stream;
 		this.localVideo.play();
 	}
 
 	start(isCaller) {
-		var peerRole = isCaller ? "Caller" : "Callee";
-		console.log("start("+ peerRole+")");
+		var peerRole = isCaller ? 'Caller' : 'Callee';
+		console.log('start('+ peerRole+')');
 		this.peerConnection = new RTCPeerConnection(this.peerConnectionConfig);
 		this.peerConnection.onicecandidate = event => this.gotIceCandidate(event);
 		this.peerConnection.ontrack = event => this.gotRemoteStream(event);
 		this.peerConnection.addStream(this.localStream);
 
 		if(isCaller) {
-			console.log("Caller: createOffer");
+			console.log('Caller: createOffer');
 			this.peerConnection.createOffer()
 				.then((description) => this.gotDescription(description))
 				.catch(this.rtcError);
-		} else {
-			this.serverConnection.send(JSON.stringify({'sdp': null}));
 		}
 	}
 
@@ -73,19 +66,19 @@ class Chat {
 		console.log('got local description');
 		this.peerConnection.setLocalDescription(description, () => {
 			console.log('send local sdp to server >>', description);
-			this.serverConnection.send(JSON.stringify({'sdp': description}));
+			this.sendToServer({'sdp': description});
 		}, this.rtcError);
 	}
 
 	gotIceCandidate(event) {
 		console.log('got local IceCandidate and send it to server', event.candidate);
 		if(event.candidate != null) {
-			this.serverConnection.send(JSON.stringify({'ice': event.candidate}));
+			this.sendToServer({'ice': event.candidate});
 		}
 	}
 
 	gotRemoteStream(event) {
-		console.log("got remote stream", event);
+		console.log('got remote stream', event);
 		this.remoteVideo.srcObject = event.streams[0];
 		this.remoteVideo.play();
 	}
@@ -94,22 +87,25 @@ class Chat {
 		console.log(error);
 	}
 
-	gotMessageFromServer(message) {
-		var caller=true;
-		if(!this.peerConnection){
+	handleNewMessage(message) {
+		console.log('handling new message');
+
+		var caller = true;
+		if (!this.peerConnection) {
 			this.start(false);
-			caller=false;
+			caller = false;
 		}
 
 		var signal = JSON.parse(message.data);
-		if(signal.sdp) {
-			console.log('gotMessageFromServer: signal.sdp' );
-			if(caller) this.peerConnection.setRemoteDescription(
-				new RTCSessionDescription(signal.sdp), function(){},this.rtcError);
-			else{
+		if (signal.sdp) {
+			console.log('handleNewMessage: signal.sdp' );
+			if (caller) {
+				this.peerConnection.setRemoteDescription(new RTCSessionDescription(signal.sdp))
+					.catch(this.rtcError);
+			}	else {
 				this.peerConnection.setRemoteDescription(new RTCSessionDescription(signal.sdp))
 				.then(() => {
-					console.log("Callee: CreateAnswer");
+					console.log('Callee: CreateAnswer');
 					this.peerConnection.createAnswer()
 						.then(desc => this.gotDescription(desc))
 						.catch( this.rtcError);
@@ -117,7 +113,7 @@ class Chat {
 				.catch( this.rtcError);
 			}
 		} else if(signal.ice) {
-			console.log('gotMessageFromServer: signal.ice' + signal.ice.candidate);
+			console.log('handleNewMessage: signal.ice' + signal.ice.candidate);
 			this.peerConnection.addIceCandidate(new RTCIceCandidate(signal.ice));
 		}
 	}
