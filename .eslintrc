@@ -1,0 +1,11 @@
+{
+  "parser": "babel-eslint",
+  "extends": ["eslint-config-airbnb", "webrtc"],
+  "env": {
+    "browser": true,
+    "node": true
+  },
+  "rules": {
+
+  }
+}
