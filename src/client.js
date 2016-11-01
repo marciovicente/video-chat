@@ -38,85 +38,98 @@ class Chat {
 		this.signalingServer.onmessage = message => this.handleNewMessage(message);
 
 		navigator.mediaDevices.getUserMedia({ video: true, audio: true })
-			.then((media) => this.getUserMediaSuccess(media))
-			.catch(this.rtcError);
+			.then((media) => this.onMedia(media))
+			.catch(this.onError);
 	}
 
-	getUserMediaSuccess(stream) {
-		console.log('getUserMediaSuccess');
+	sendToServer(data) {
+		console.log('Sending to server', data);
+		this.signalingServer.send(JSON.stringify(data));
+	}
+
+	onMedia(stream) {
+		console.log('onMedia');
 		this.localStream = stream;
 		this.localVideo.srcObject = stream;
 		this.localVideo.play();
 	}
 
-	start(isCaller) {
-		var peerRole = isCaller ? 'Caller' : 'Callee';
-		console.log('start('+ peerRole+')');
+	start(isSender) {
+		var peerRole = isSender ? 'Sender' : 'Receiver';
+		console.log(`starting ${peerRole}`);
 		this.peerConnection = new RTCPeerConnection(this.peerConnectionConfig);
-		this.peerConnection.onicecandidate = event => this.gotIceCandidate(event);
-		this.peerConnection.ontrack = event => this.gotRemoteStream(event);
+		this.peerConnection.onicecandidate = event => this.onIceCandidate(event);
+		this.peerConnection.ontrack = event => this.receiveRemoteStream(event);
 		this.peerConnection.addStream(this.localStream);
 
-		if(isCaller) {
-			console.log('Caller: createOffer');
+		if(isSender) {
+			console.log('Sender: createOffer');
 			this.peerConnection.createOffer()
-				.then((description) => this.gotDescription(description))
-				.catch(this.rtcError);
+				.then(description => this.onSetDescription(description))
+				.catch(this.onError);
 		}
 	}
 
-	gotDescription(description) {
-		console.log('got local description');
+	onSetDescription(description) {
+		console.log('on set local description', description);
 		this.peerConnection.setLocalDescription(description, () => {
 			console.log('send local sdp to server >>', description);
-			this.sendToServer({'sdp': description});
-		}, this.rtcError);
+			// sending to server the local user configuration
+			this.sendToServer({sdp: description});
+		}, this.onError);
 	}
 
-	gotIceCandidate(event) {
-		console.log('got local IceCandidate and send it to server', event.candidate);
-		if(event.candidate != null) {
-			this.sendToServer({'ice': event.candidate});
+	onIceCandidate(event) {
+		if (event.candidate) {
+			console.log('[LOCAL] onIceCandidate. Send to server the candidate', event.candidate);
+			this.sendToServer({ice: event.candidate});
 		}
 	}
 
-	gotRemoteStream(event) {
-		console.log('got remote stream', event);
+	receiveRemoteStream(event) {
+		console.log('receive remote stream', event);
 		this.remoteVideo.srcObject = event.streams[0];
 		this.remoteVideo.play();
 	}
 
-	rtcError(error) {
+	onError(error) {
 		console.log(error);
 	}
 
 	handleNewMessage(message) {
 		console.log('handling new message');
 
-		var caller = true;
+		var sender = true;
 		if (!this.peerConnection) {
-			this.start(false);
-			caller = false;
+			// if there's no peer connection it means
+			// the current user is the receiver
+			console.log('Partner should be connected');
+			this.start();
+			sender = false;
 		}
 
 		var signal = JSON.parse(message.data);
 		if (signal.sdp) {
 			console.log('handleNewMessage: signal.sdp' );
-			if (caller) {
+			if (sender) {
 				this.peerConnection.setRemoteDescription(new RTCSessionDescription(signal.sdp))
-					.catch(this.rtcError);
+					.catch(this.onError);
 			}	else {
+				// if currrent connection isn't the sender I need to send back (createAnswer)
+				//
 				this.peerConnection.setRemoteDescription(new RTCSessionDescription(signal.sdp))
-				.then(() => {
-					console.log('Callee: CreateAnswer');
-					this.peerConnection.createAnswer()
-						.then(desc => this.gotDescription(desc))
-						.catch( this.rtcError);
+					.then(() => {
+						console.log('Receiver: CreateAnswer');
+						this.peerConnection.createAnswer()
+							.then(desc => this.onSetDescription(desc))
+							.catch(this.onError);
 				})
-				.catch( this.rtcError);
+				.catch(this.onError);
 			}
-		} else if(signal.ice) {
-			console.log('handleNewMessage: signal.ice' + signal.ice.candidate);
+		}
+
+		if(signal.ice) {
+			console.log(`Adding ICE candidadate ${signal.ice.candidate}`);
 			this.peerConnection.addIceCandidate(new RTCIceCandidate(signal.ice));
 		}
 	}
