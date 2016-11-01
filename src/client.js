@@ -14,13 +14,16 @@ class Chat {
 		this.roomKey = null;
 		this.sendToServer = this.sendToServer.bind(this);
 
+		this.adapter();
 		this.bindUserActions();
 		this.initializeSocket();
 	}
 
-	sendToServer(data) {
-		console.log('Sending to server', data.type);
-		this.signalingServer.send(JSON.stringify(data));
+	adapter() {
+		navigator.mediaDevices.getUserMedia = navigator.mediaDevices.getUserMedia || navigator.webkitGetUserMedia;
+		window.RTCPeerConnection = window.RTCPeerConnection || window.webkitRTCPeerConnection;
+		window.RTCIceCandidate = window.RTCIceCandidate || window.webkitRTCIceCandidate;
+		window.RTCSessionDescription = window.RTCSessionDescription || window.webkitRTCSessionDescription;
 	}
 
 	bindUserActions() {
